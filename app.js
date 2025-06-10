@@ -1,3 +1,4 @@
+// DOM Elements
 const videoCardContainer = document.querySelector(".video-container");
 const toggleBtn = document.querySelector(".toggle-btn");
 const navbar = document.querySelector(".navbar");
@@ -13,6 +14,36 @@ const SEARCH_API = "https://www.googleapis.com/youtube/v3/search?";
 
 let nextPageToken = "";
 let isLoading = false;
+let currentSearchQuery = "";
+
+function debounce(func, delay) {
+  let timeoutId;
+  return function (...args) {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      func.apply(this, args);
+    }, delay);
+  };
+}
+
+function throttle(func, limit) {
+  let lastFunc;
+  let lastRan;
+  return function (...args) {
+    if (!lastRan) {
+      func.apply(this, args);
+      lastRan = Date.now();
+    } else {
+      clearTimeout(lastFunc);
+      lastFunc = setTimeout(() => {
+        if (Date.now() - lastRan >= limit) {
+          func.apply(this, args);
+          lastRan = Date.now();
+        }
+      }, limit - (Date.now() - lastRan));
+    }
+  };
+}
 
 toggleBtn.addEventListener("click", () => {
   navbar.classList.toggle("active");
@@ -65,6 +96,7 @@ function formatDate(publishedAt) {
 
 async function fetchVideos() {
   try {
+    if (isLoading) return;
     isLoading = true;
     loadingSpinner.style.display = "flex";
 
@@ -156,22 +188,39 @@ function makeVideoCard(data) {
   `;
 }
 
+const debouncedSearch = debounce(searchVideos, 500);
+
 searchBtn.addEventListener("click", () => {
-  if (searchInput.value.trim()) {
-    searchVideos(searchInput.value.trim());
+  const query = searchInput.value.trim();
+  if (query) {
+    currentSearchQuery = query;
+    debouncedSearch(query);
+  }
+});
+
+searchInput.addEventListener("input", () => {
+  const query = searchInput.value.trim();
+  if (query) {
+    currentSearchQuery = query;
+    debouncedSearch(query);
   }
 });
 
 searchInput.addEventListener("keypress", (e) => {
   if (e.key === "Enter" && searchInput.value.trim()) {
-    searchVideos(searchInput.value.trim());
+    const query = searchInput.value.trim();
+    currentSearchQuery = query;
+    searchVideos(query);
   }
 });
 
 async function searchVideos(query) {
   try {
+    if (query !== currentSearchQuery) return;
+
     videoCardContainer.innerHTML = "";
     loadingSpinner.style.display = "flex";
+    nextPageToken = "";
 
     const response = await fetch(
       SEARCH_API +
@@ -209,15 +258,21 @@ async function searchVideos(query) {
   }
 }
 
-window.addEventListener("scroll", () => {
+const throttledScroll = throttle(() => {
   if (
     window.innerHeight + window.scrollY >= document.body.offsetHeight - 500 &&
     !isLoading &&
     nextPageToken
   ) {
-    fetchVideos();
+    if (currentSearchQuery) {
+      searchVideos(currentSearchQuery);
+    } else {
+      fetchVideos();
+    }
   }
-});
+}, 1000);
+
+window.addEventListener("scroll", throttledScroll);
 
 const filterButtons = document.querySelectorAll(".filter-options");
 filterButtons.forEach((button) => {
@@ -226,6 +281,7 @@ filterButtons.forEach((button) => {
     button.classList.add("active");
     videoCardContainer.innerHTML = "";
     nextPageToken = "";
+    currentSearchQuery = "";
     fetchVideos();
   });
 });
